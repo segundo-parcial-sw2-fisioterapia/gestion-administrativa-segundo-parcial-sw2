@@ -1,0 +1,512 @@
+# ========================================
+# PAGINACION
+# ========================================
+input PaginaInput {
+  pagina: Int = 0
+  tamano: Int = 20
+}
+
+type PaginaInfo {
+  totalElementos: Int!
+  totalPaginas: Int!
+  paginaActual: Int!
+  tamano: Int!
+  primero: Boolean!
+  ultimo: Boolean!
+}
+
+# ========================================
+# CROSS-SERVICE: datos de persona desde clinica
+# ========================================
+type PersonaInfo {
+  nombre: String
+  apellido: String
+  ci: String
+  telefono: String
+}
+
+# ========================================
+# ENUMS
+# ========================================
+enum EstadoFactura { emitida anulada }
+enum EstadoMensualidad { pendiente pagada vencida }
+enum CategoriaSemaforoTarifa { rojo amarillo verde }
+enum NivelIntensidad { bajo medio alto }
+enum MetodoPago { efectivo tarjeta transferencia qr }
+enum TipoContrato { tiempo_completo medio_tiempo }
+enum EstadoLaboral { activo suspendido retirado }
+enum DiaSemana { lunes martes miercoles jueves viernes sabado }
+enum EstadoAsistencia { presente ausente tardanza justificado }
+enum CategoriaInsumo { material_terapeutico medicamento equipo consumible }
+enum TipoMovimiento { entrada salida }
+enum TipoDocumento { contrato factura evaluacion consentimiento alta_medica otro }
+enum TipoEntidadDocumento { paciente empleado factura }
+
+# ========================================
+# TYPES
+# ========================================
+type Facturas {
+  id: ID!
+  pacienteId: ID!
+  numeroFactura: String!
+  fechaEmision: String!
+  montoTotal: Float!
+  estado: EstadoFactura!
+  mensualidadId: ID
+  concepto: String
+  empleadoId: ID
+  metodoPago: String
+  urlDocumento: String
+  hashBlockchain: String
+  txBlockchain: String
+  fechaRegistroBlockchain: String
+  fechaCreacion: String
+}
+
+type Tarifas {
+  id: ID!
+  categoriaSemaforo: String!
+  nivel: String!
+  precioMensual: Float!
+  actualizadoEn: String
+  actualizadoPor: ID
+}
+
+type Mensualidades {
+  id: ID!
+  planTratamientoId: ID!
+  pacienteId: ID!
+  periodo: String!
+  monto: Float!
+  estado: String!
+  fechaCreacion: String
+}
+
+type Pagos {
+  id: ID!
+  facturaId: ID!
+  fechaPago: String!
+  monto: Float!
+  metodoPago: MetodoPago!
+  referencia: String
+  registradoPor: ID
+}
+
+type Empleados {
+  id: ID!
+  personaId: ID!
+  cargo: String!
+  especialidad: String
+  salarioBase: Float!
+  tipoContrato: TipoContrato!
+  fechaIngreso: String!
+  fechaBaja: String
+  estadoLaboral: EstadoLaboral!
+  # Datos enriquecidos desde el microservicio clinica
+  persona: PersonaInfo
+}
+
+type Turnos {
+  id: ID!
+  empleadoId: ID!
+  diaSemana: DiaSemana!
+  horaInicio: String!
+  horaFin: String!
+  activo: Boolean!
+}
+
+type Asistencias {
+  id: ID!
+  empleadoId: ID!
+  fecha: String!
+  horaEntrada: String!
+  horaSalida: String
+  estado: EstadoAsistencia!
+}
+
+type Insumos {
+  id: ID!
+  nombre: String!
+  categoria: CategoriaInsumo!
+  stockActual: Int!
+  stockMinimo: Int!
+  unidadMedida: String!
+  precioUnitario: Float!
+  activo: Boolean!
+}
+
+type MovimientosInsumos {
+  id: ID!
+  insumoId: ID!
+  tipo: TipoMovimiento!
+  cantidad: Int!
+  fecha: String!
+  registradoPor: ID
+  observaciones: String
+}
+
+type Documentos {
+  id: ID!
+  nombre: String!
+  tipo: TipoDocumento!
+  urlS3: String
+  subidoPor: ID!
+  fechaSubida: String!
+  firmado: Boolean!
+  hashBlockchain: String
+  txBlockchain: String
+  referenciaEntidad: ID
+  tipoEntidad: TipoEntidadDocumento
+}
+
+# ========================================
+# TIPOS PAGINADOS
+# ========================================
+type FacturasPaginadas {
+  contenido: [Facturas!]!
+  paginaInfo: PaginaInfo!
+}
+
+type PagosPaginados {
+  contenido: [Pagos!]!
+  paginaInfo: PaginaInfo!
+}
+
+type EmpleadosPaginados {
+  contenido: [Empleados!]!
+  paginaInfo: PaginaInfo!
+}
+
+type TurnosPaginados {
+  contenido: [Turnos!]!
+  paginaInfo: PaginaInfo!
+}
+
+type AsistenciasPaginadas {
+  contenido: [Asistencias!]!
+  paginaInfo: PaginaInfo!
+}
+
+type InsumosPaginados {
+  contenido: [Insumos!]!
+  paginaInfo: PaginaInfo!
+}
+
+type MovimientosInsumosPaginados {
+  contenido: [MovimientosInsumos!]!
+  paginaInfo: PaginaInfo!
+}
+
+type DocumentosPaginados {
+  contenido: [Documentos!]!
+  paginaInfo: PaginaInfo!
+}
+
+type MensualidadesPaginadas {
+  contenido: [Mensualidades!]!
+  paginaInfo: PaginaInfo!
+}
+
+type MensualidadEnriquecida {
+  id: ID!
+  planTratamientoId: ID!
+  pacienteId: ID!
+  periodo: String!
+  monto: Float!
+  estado: String!
+  fechaCreacion: String
+  paciente: PersonaInfo
+}
+
+type MensualidadesPaginadasEnriquecidas {
+  contenido: [MensualidadEnriquecida!]!
+  paginaInfo: PaginaInfo!
+}
+
+type FacturaEnriquecida {
+  id: ID!
+  pacienteId: ID!
+  numeroFactura: String!
+  fechaEmision: String!
+  montoTotal: Float!
+  estado: EstadoFactura!
+  mensualidadId: ID
+  concepto: String
+  empleadoId: ID
+  metodoPago: String
+  urlDocumento: String
+  fechaCreacion: String
+  paciente: PersonaInfo
+  empleado: Empleados
+}
+
+type PagoRegistrado {
+  mensualidad: Mensualidades!
+  factura: FacturaEnriquecida!
+}
+
+# ========================================
+# INPUTS
+# ========================================
+input CrearFacturaInput {
+  pacienteId: ID!
+  numeroFactura: String!
+  fechaEmision: String!
+  montoTotal: Float!
+  mensualidadId: ID
+  concepto: String
+  empleadoId: ID
+  metodoPago: String
+  urlDocumento: String
+}
+
+input EditarFacturaInput {
+  pacienteId: ID
+  numeroFactura: String
+  fechaEmision: String
+  montoTotal: Float
+  estado: EstadoFactura
+  mensualidadId: ID
+  concepto: String
+  empleadoId: ID
+  metodoPago: String
+  urlDocumento: String
+}
+
+input ActualizarTarifaInput {
+  precioMensual: Float!
+  actualizadoPor: ID
+}
+
+input CrearMensualidadInput {
+  planTratamientoId: ID!
+  pacienteId: ID!
+  periodo: String!
+  monto: Float!
+}
+
+input RegistrarPagoMensualidadInput {
+  mensualidadId: ID!
+  empleadoId: ID
+  metodoPago: String
+}
+
+input CrearPagoInput {
+  facturaId: ID!
+  fechaPago: String!
+  monto: Float!
+  metodoPago: MetodoPago!
+  referencia: String
+  registradoPor: ID
+}
+
+input EditarPagoInput {
+  fechaPago: String
+  monto: Float
+  metodoPago: MetodoPago
+  referencia: String
+}
+
+input CrearEmpleadoInput {
+  personaId: ID!
+  cargo: String!
+  especialidad: String
+  salarioBase: Float!
+  tipoContrato: TipoContrato!
+  fechaIngreso: String!
+}
+
+input EditarEmpleadoInput {
+  cargo: String
+  especialidad: String
+  salarioBase: Float
+  tipoContrato: TipoContrato
+  fechaBaja: String
+  estadoLaboral: EstadoLaboral
+}
+
+input CrearTurnoInput {
+  empleadoId: ID!
+  diaSemana: DiaSemana!
+  horaInicio: String!
+  horaFin: String!
+}
+
+input EditarTurnoInput {
+  diaSemana: DiaSemana
+  horaInicio: String
+  horaFin: String
+  activo: Boolean
+}
+
+input CrearAsistenciaInput {
+  empleadoId: ID!
+  fecha: String!
+  horaEntrada: String!
+  horaSalida: String
+  estado: EstadoAsistencia!
+}
+
+input EditarAsistenciaInput {
+  horaEntrada: String
+  horaSalida: String
+  estado: EstadoAsistencia
+}
+
+input CrearInsumoInput {
+  nombre: String!
+  categoria: CategoriaInsumo!
+  stockActual: Int!
+  stockMinimo: Int!
+  unidadMedida: String!
+  precioUnitario: Float!
+}
+
+input EditarInsumoInput {
+  nombre: String
+  categoria: CategoriaInsumo
+  stockActual: Int
+  stockMinimo: Int
+  unidadMedida: String
+  precioUnitario: Float
+  activo: Boolean
+}
+
+input CrearMovimientoInsumoInput {
+  insumoId: ID!
+  tipo: TipoMovimiento!
+  cantidad: Int!
+  registradoPor: ID
+  observaciones: String
+}
+
+input CrearDocumentoInput {
+  nombre: String!
+  tipo: TipoDocumento!
+  urlS3: String
+  subidoPor: ID!
+  referenciaEntidad: ID
+  tipoEntidad: TipoEntidadDocumento
+}
+
+input EditarDocumentoInput {
+  nombre: String
+  tipo: TipoDocumento
+  urlS3: String
+  referenciaEntidad: ID
+  tipoEntidad: TipoEntidadDocumento
+}
+
+# ========================================
+# QUERIES
+# ========================================
+type Query {
+  # Facturas — paginado
+  listarFacturas(pagina: PaginaInput): FacturasPaginadas!
+  verFactura(id: ID!): Facturas
+  verFacturaEnriquecida(id: ID!): FacturaEnriquecida
+  listarFacturasPorPaciente(pacienteId: ID!): [Facturas!]!
+  listarFacturasPorMensualidad(mensualidadId: ID!): [Facturas!]!
+
+  # Tarifas
+  listarTarifas: [Tarifas!]!
+  verTarifa(id: ID!): Tarifas
+
+  # Mensualidades — paginado
+  listarMensualidades(pagina: PaginaInput): MensualidadesPaginadas!
+  listarMensualidadesEnriquecidas(pacienteId: ID, estado: EstadoMensualidad, pagina: PaginaInput): MensualidadesPaginadasEnriquecidas!
+  verMensualidad(id: ID!): Mensualidades
+  listarMensualidadesPorPaciente(pacienteId: ID!): [Mensualidades!]!
+  listarMensualidadesPorPlan(planId: ID!): [Mensualidades!]!
+  listarMensualidadesPendientes: [Mensualidades!]!
+
+  # Pagos — paginado
+  listarPagos(pagina: PaginaInput): PagosPaginados!
+  verPago(id: ID!): Pagos
+  listarPagosPorFactura(facturaId: ID!): [Pagos!]!
+
+  # Empleados — paginado, con datos enriquecidos de persona (cross-service clinica)
+  listarEmpleados(pagina: PaginaInput): EmpleadosPaginados!
+  verEmpleado(id: ID!): Empleados
+  verEmpleadoPorPersonaId(personaId: ID!): Empleados
+  buscarEmpleados(termino: String!): [Empleados!]!
+
+  # Turnos — paginado
+  listarTurnos(pagina: PaginaInput): TurnosPaginados!
+  verTurno(id: ID!): Turnos
+  listarTurnosPorEmpleado(empleadoId: ID!): [Turnos!]!
+
+  # Asistencias — paginado
+  listarAsistencias(pagina: PaginaInput): AsistenciasPaginadas!
+  verAsistencia(id: ID!): Asistencias
+  listarAsistenciasPorEmpleado(empleadoId: ID!): [Asistencias!]!
+
+  # Insumos — paginado
+  listarInsumos(pagina: PaginaInput): InsumosPaginados!
+  verInsumo(id: ID!): Insumos
+  listarInsumosConStockBajo: [Insumos!]!
+
+  # Movimientos Insumos — paginado
+  listarMovimientosInsumos(pagina: PaginaInput): MovimientosInsumosPaginados!
+  verMovimientoInsumo(id: ID!): MovimientosInsumos
+  listarMovimientosPorInsumo(insumoId: ID!): [MovimientosInsumos!]!
+
+  # Documentos — paginado
+  listarDocumentos(pagina: PaginaInput): DocumentosPaginados!
+  verDocumento(id: ID!): Documentos
+  listarDocumentosPorEntidad(referenciaEntidadId: ID!): [Documentos!]!
+}
+
+# ========================================
+# MUTATIONS
+# ========================================
+type Mutation {
+  # Facturas
+  crearFacturas(input: CrearFacturaInput!): Facturas!
+  editarFactura(id: ID!, input: EditarFacturaInput!): Facturas!
+  anularFactura(id: ID!): Facturas!
+  eliminarFactura(id: ID!): Boolean!
+  registrarFacturaEnBlockchain(id: ID!): Facturas!
+
+  # Tarifas
+  actualizarTarifa(id: ID!, input: ActualizarTarifaInput!): Tarifas!
+
+  # Mensualidades
+  crearMensualidades(input: CrearMensualidadInput!): Mensualidades!
+  registrarPagoMensualidad(input: RegistrarPagoMensualidadInput!): Mensualidades!
+
+  # Pagos
+  crearPagos(input: CrearPagoInput!): Pagos!
+  editarPago(id: ID!, input: EditarPagoInput!): Pagos!
+  eliminarPago(id: ID!): Boolean!
+
+  # Empleados
+  crearEmpleados(input: CrearEmpleadoInput!): Empleados!
+  editarEmpleado(id: ID!, input: EditarEmpleadoInput!): Empleados!
+  eliminarEmpleado(id: ID!): Boolean!
+
+  # Turnos
+  crearTurnos(input: CrearTurnoInput!): Turnos!
+  editarTurno(id: ID!, input: EditarTurnoInput!): Turnos!
+  eliminarTurno(id: ID!): Boolean!
+
+  # Asistencias
+  crearAsistencias(input: CrearAsistenciaInput!): Asistencias!
+  editarAsistencia(id: ID!, input: EditarAsistenciaInput!): Asistencias!
+  eliminarAsistencia(id: ID!): Boolean!
+
+  # Insumos
+  crearInsumos(input: CrearInsumoInput!): Insumos!
+  editarInsumo(id: ID!, input: EditarInsumoInput!): Insumos!
+  eliminarInsumo(id: ID!): Boolean!
+
+  # Movimientos Insumos
+  crearMovimientosInsumos(input: CrearMovimientoInsumoInput!): MovimientosInsumos!
+  eliminarMovimientoInsumo(id: ID!): Boolean!
+
+  # Documentos
+  crearDocumentos(input: CrearDocumentoInput!): Documentos!
+  editarDocumento(id: ID!, input: EditarDocumentoInput!): Documentos!
+  eliminarDocumento(id: ID!): Boolean!
+  firmarDocumentoConBlockchain(id: ID!): Documentos!
+}
