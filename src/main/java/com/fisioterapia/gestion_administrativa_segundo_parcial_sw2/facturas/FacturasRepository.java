@@ -11,4 +11,5 @@ public interface FacturasRepository extends JpaRepository<Facturas, Long> {
     List<Facturas> findByPacienteId(Long pacienteId);
     List<Facturas> findByMensualidadId(Long mensualidadId);
     Page<Facturas> findByFechaEmisionBetween(LocalDateTime desde, LocalDateTime hasta, Pageable pageable);
+    List<Facturas> findByFechaEmisionBetween(LocalDateTime desde, LocalDateTime hasta);
 }

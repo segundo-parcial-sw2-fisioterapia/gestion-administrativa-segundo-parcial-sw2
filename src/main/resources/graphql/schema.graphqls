@@ -160,6 +160,125 @@ type Documentos {
 }
 
 # ========================================
+# REPORTES (BI Administrativo)
+# ========================================
+type IngresoMensual {
+  mes: Int!
+  etiqueta: String!
+  totalIngresos: Float!
+  totalFacturas: Int!
+}
+
+type IngresoPorCategoria {
+  categoria: String!
+  total: Float!
+  cantidad: Int!
+}
+
+type ResumenMensualidades {
+  pagadas: Int!
+  pendientes: Int!
+  vencidas: Int!
+  montoPagado: Float!
+  montoPendiente: Float!
+}
+
+type ReporteFinanciero {
+  anio: Int!
+  totalIngresos: Float!
+  totalFacturas: Int!
+  ticketPromedio: Float!
+  ingresosPorMes: [IngresoMensual!]!
+  ingresosPorMetodoPago: [IngresoPorCategoria!]!
+  mensualidades: ResumenMensualidades!
+}
+
+# ─── Reportes dinámicos (motor genérico parametrizable) ───────────────────────
+enum FuenteReporte {
+  FACTURAS
+  MENSUALIDADES
+  PAGOS
+  EMPLEADOS
+  INSUMOS
+  MOVIMIENTOS_INSUMOS
+  TARIFAS
+}
+
+enum MetricaReporte {
+  CONTEO
+  SUMA
+  PROMEDIO
+}
+
+enum TipoGrafico {
+  BARRA
+  LINEA
+  PIE
+  TABLA
+  KPI
+}
+
+input ReporteDinamicoInput {
+  fuente: FuenteReporte!
+  metrica: MetricaReporte!
+  campoMetrica: String
+  agruparPor: String!
+  anio: Int
+  filtroCampo: String
+  filtroValor: String
+  rangoFecha: String
+}
+
+type FilaReporte {
+  etiqueta: String!
+  valor: Float!
+}
+
+type ReporteDinamico {
+  titulo: String!
+  etiquetaDimension: String!
+  etiquetaMetrica: String!
+  filas: [FilaReporte!]!
+  total: Float!
+  visualizacionSugerida: TipoGrafico!
+}
+
+type CampoMeta {
+  campo: String!
+  etiqueta: String!
+}
+
+type FuenteMeta {
+  fuente: FuenteReporte!
+  etiqueta: String!
+  soportaAnio: Boolean!
+  dimensiones: [CampoMeta!]!
+  numericos: [CampoMeta!]!
+}
+
+type CatalogoReportes {
+  fuentes: [FuenteMeta!]!
+}
+
+# ─── Reportes por prompt (IA · OpenAI) ────────────────────────────────────────
+type ReporteInterpretado {
+  fuente: FuenteReporte!
+  metrica: MetricaReporte!
+  campoMetrica: String
+  agruparPor: String!
+  anio: Int
+  filtroCampo: String
+  filtroValor: String
+}
+
+type ReporteIA {
+  prompt: String!
+  interpretacion: ReporteInterpretado!
+  resultado: ReporteDinamico!
+  resumenNarrativo: String!
+}
+
+# ========================================
 # TIPOS PAGINADOS
 # ========================================
 type FacturasPaginadas {
@@ -464,6 +583,12 @@ type Query {
   listarDocumentos(pagina: PaginaInput): DocumentosPaginados!
   verDocumento(id: ID!): Documentos
   listarDocumentosPorEntidad(referenciaEntidadId: ID!): [Documentos!]!
+
+  # Reportes (BI Administrativo)
+  reporteFinanciero(anio: Int): ReporteFinanciero!
+  catalogoReportes: CatalogoReportes!
+  reporteDinamico(input: ReporteDinamicoInput!): ReporteDinamico!
+  reportePorPrompt(prompt: String!): ReporteIA!
 }
 
 # ========================================
@@ -519,4 +644,8 @@ type Mutation {
   editarDocumento(id: ID!, input: EditarDocumentoInput!): Documentos!
   eliminarDocumento(id: ID!): Boolean!
   firmarDocumentoConBlockchain(id: ID!): Documentos!
+
+  # Reportes (Exportación)
+  exportarReportePdf(input: ReporteDinamicoInput!): String!
+  exportarReporteExcel(input: ReporteDinamicoInput!): String!
 }

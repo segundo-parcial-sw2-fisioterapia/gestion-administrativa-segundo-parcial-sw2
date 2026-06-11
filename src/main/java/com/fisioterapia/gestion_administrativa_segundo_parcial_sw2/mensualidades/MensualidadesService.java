@@ -2,6 +2,8 @@ package com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.mensualidade
 
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.compartido.PaginaInfo;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.compartido.PaginaInput;
+import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.BiClient;
+import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.BlockchainClient;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.ClinicaClient;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.PersonaInfo;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.empleados.Empleados;
@@ -9,6 +11,7 @@ import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.empleados.Emp
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.EstadoFactura;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.Facturas;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.FacturasRepository;
+import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.FacturasService;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.FacturaEnriquecida;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.FacturaEnriquecida.EmpleadoDto;
 
@@ -19,6 +22,7 @@ import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.mensualidades
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.mensualidades.dto.RegistrarPagoMensualidadInput;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.pagos.MetodoPago;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +34,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -39,6 +44,9 @@ public class MensualidadesService {
     private final FacturasRepository facturasRepository;
     private final EmpleadosRepository empleadosRepository;
     private final ClinicaClient clinicaClient;
+    private final FacturasService facturasService;
+    private final BlockchainClient blockchainClient;
+    private final BiClient biClient;
 
     /**
      * Lista mensualidades con paginación ordenadas por período descendente.
@@ -139,11 +147,11 @@ public class MensualidadesService {
     }
 
     /**
-     * Registra el pago de una mensualidad: cambia su estado a pagada, genera la factura
-     * y devuelve ambos objetos enriquecidos con datos del empleado y del paciente.
+     * Registra el pago de una mensualidad: cambia su estado a pagada, genera la factura PDF,
+     * la sube a S3 y registra su hash en Ethereum Sepolia (blockchain no bloquea el flujo).
      *
      * @param input Datos del pago (mensualidadId, empleadoId, metodoPago).
-     * @return PagoRegistrado con la mensualidad actualizada y la factura emitida.
+     * @return PagoRegistrado con la mensualidad actualizada y la factura enriquecida.
      */
     @Transactional
     public PagoRegistrado registrarPagoMensualidad(RegistrarPagoMensualidadInput input) {
@@ -174,32 +182,66 @@ public class MensualidadesService {
             try {
                 facturaBuilder.empleadoId(Long.parseLong(input.getEmpleadoId()));
             } catch (NumberFormatException e) {
-                System.err.println("Error parsing empleadoId: " + input.getEmpleadoId());
+                log.warn("Error parsing empleadoId: {}", input.getEmpleadoId());
             }
         }
         if (input.getMetodoPago() != null && !input.getMetodoPago().trim().isEmpty() && !input.getMetodoPago().equals("undefined")) {
             try {
                 facturaBuilder.metodoPago(MetodoPago.valueOf(input.getMetodoPago().toLowerCase()));
             } catch (IllegalArgumentException e) {
-                System.err.println("Error parsing metodoPago: " + input.getMetodoPago());
+                log.warn("Error parsing metodoPago: {}", input.getMetodoPago());
             }
         }
 
         Facturas factura = facturasRepository.save(facturaBuilder.build());
 
+        // Enriquecer con datos del paciente y empleado para el PDF
         FacturaEnriquecida facturaEnriquecida = new FacturaEnriquecida(factura);
-
-        // Enriquecer con datos del paciente
         Map<Long, PersonaInfo> pacientesMap = clinicaClient.obtenerPacientesBatch(List.of(mensualidad.getPacienteId()));
         facturaEnriquecida.setPaciente(pacientesMap.get(mensualidad.getPacienteId()));
 
-        // Enriquecer con datos del empleado que registró el pago
         if (factura.getEmpleadoId() != null) {
             empleadosRepository.findById(factura.getEmpleadoId()).ifPresent(emp -> {
                 clinicaClient.obtenerPersona(emp.getPersonaId()).ifPresent(emp::setPersona);
                 facturaEnriquecida.setEmpleado(EmpleadoDto.desde(emp));
             });
         }
+
+        // ── Paso extra 1: Generar PDF y subir a S3 ───────────────────────────────
+        try {
+            String urlDocumento = facturasService.generarYSubirPdfFactura(factura, facturaEnriquecida);
+            factura.setUrlDocumento(urlDocumento);
+            facturaEnriquecida.setUrlDocumento(urlDocumento);
+            log.info("PDF de factura {} subido a S3: {}", numeroFactura, urlDocumento);
+        } catch (Exception e) {
+            log.warn("No se pudo generar/subir PDF a S3 para factura {}: {}. La operación continúa.", numeroFactura, e.getMessage());
+        }
+
+        // ── Paso extra 2: Registrar hash en Blockchain Sepolia ────────────────────
+        String contenidoBlockchain = "FACTURA:" + factura.getNumeroFactura()
+                + "|MONTO:" + factura.getMontoTotal()
+                + "|PACIENTE:" + mensualidad.getPacienteId()
+                + "|PERIODO:" + mensualidad.getPeriodo();
+
+        blockchainClient.firmar(contenidoBlockchain, "ADMINISTRATIVO").ifPresent(respuesta -> {
+            factura.setHashBlockchain(respuesta.getHash());
+            factura.setTxBlockchain(respuesta.getTxHash());
+            factura.setFechaRegistroBlockchain(LocalDateTime.now());
+            facturaEnriquecida.setHashBlockchain(respuesta.getHash());
+            facturaEnriquecida.setTxBlockchain(respuesta.getTxHash());
+            log.info("Factura {} registrada en Sepolia. tx={}", numeroFactura, respuesta.getTxHash());
+        });
+
+        // Guardar factura con URL S3 + hash blockchain
+        facturasRepository.save(factura);
+
+        // ── Paso extra 3: Telemetría al motor BI (Django) para KPIs de ingresos reales ──
+        biClient.registrarFacturaPagada(
+                mensualidad.getPacienteId(),
+                factura.getEmpleadoId(),
+                mensualidad.getMonto(),
+                null
+        );
 
         return new PagoRegistrado(MensualidadDto.desde(mensualidad), facturaEnriquecida);
     }
