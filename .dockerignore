@@ -1,0 +1,8 @@
+.gradle
+build
+bin
+!build/libs/*.jar
+.git
+.vscode
+.idea
+*.md

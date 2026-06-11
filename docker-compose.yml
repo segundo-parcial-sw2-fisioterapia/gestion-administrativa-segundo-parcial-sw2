@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  postgres-admin:
+    image: postgres:15-alpine
+    container_name: postgres-admin-sw2
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: p2_sw2_sprint_boot
+    ports:
+      - "5433:5432" # Expuesto en el puerto 5433 para no chocar con el 5432 de la clínica
+    volumes:
+      - postgres_admin_data:/var/lib/postgresql/data
+
+  api-admin:
+    image: willxd123/gestion-administrativa-sw2:latest # Imagen desde Docker Hub para evitar compilar en Azure
+    container_name: api-admin-sw2
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      # Sobrescribimos la URL para que Spring Boot apunte al contenedor de BD en vez de localhost
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres-admin:5432/p2_sw2_sprint_boot
+      - SPRING_PROFILES_ACTIVE=production
+    depends_on:
+      - postgres-admin
+
+volumes:
+  postgres_admin_data:

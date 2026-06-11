@@ -5,17 +5,25 @@ import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.compartido.Pa
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.BlockchainClient;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.ClinicaClient;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.PersonaInfo;
+import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.config.S3Service;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.empleados.EmpleadosRepository;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.CrearFacturaInput;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.EditarFacturaInput;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.FacturaEnriquecida;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.facturas.dto.FacturaEnriquecida.EmpleadoDto;
 import com.fisioterapia.gestion_administrativa_segundo_parcial_sw2.pagos.MetodoPago;
+import com.lowagie.text.*;
+import com.lowagie.text.pdf.PdfPCell;
+import com.lowagie.text.pdf.PdfPTable;
+import com.lowagie.text.pdf.PdfWriter;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.awt.Color;
+import java.io.ByteArrayOutputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
@@ -25,6 +33,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -34,6 +43,9 @@ public class FacturasService {
     private final BlockchainClient blockchainClient;
     private final EmpleadosRepository empleadosRepository;
     private final ClinicaClient clinicaClient;
+    private final S3Service s3Service;
+
+    private static final Color AZUL_PRIMARIO = new Color(28, 55, 102);
 
     /**
      * Lista facturas con paginación ordenadas por fecha de emisión descendente.
@@ -69,7 +81,6 @@ public class FacturasService {
             page = facturasRepository.findAll(p);
         }
 
-        // Batch: todos los pacienteIds únicos de la página actual
         List<Long> pacienteIds = page.getContent().stream()
                 .map(Facturas::getPacienteId)
                 .filter(Objects::nonNull)
@@ -193,65 +204,146 @@ public class FacturasService {
     }
 
     /**
-     * Genera un PDF de la factura y lo retorna como String base64 con prefijo data URI.
-     * El frontend lo abre en una nueva pestaña o lo descarga directamente.
+     * Genera el PDF de la factura con OpenPDF y lo retorna como base64 data URI.
+     * El frontend lo abre en una nueva pestaña para visualización o descarga.
      */
     public String generarPdfFactura(String id) {
         FacturaEnriquecida factura = verFacturaEnriquecida(id);
         if (factura == null) throw new RuntimeException("Factura no encontrada: " + id);
-
-        String html = buildFacturaHtml(factura);
-        byte[] pdfBytes = buildPdfSimple(factura);
+        byte[] pdfBytes = generarPdfBytes(factura);
         return "data:application/pdf;base64," + Base64.getEncoder().encodeToString(pdfBytes);
     }
 
-    /** Construye HTML de la factura. Usado también para el print-view. */
-    private String buildFacturaHtml(FacturaEnriquecida f) {
-        String pacienteNombre = f.getPaciente() != null
-                ? f.getPaciente().getNombre() + " " + f.getPaciente().getApellido()
-                : "ID: " + f.getPacienteId();
-        String pacienteCi = f.getPaciente() != null && f.getPaciente().getCi() != null
-                ? f.getPaciente().getCi() : "—";
-        String empleadoNombre = (f.getEmpleado() != null && f.getEmpleado().getPersona() != null)
-                ? f.getEmpleado().getPersona().getNombre() + " " + f.getEmpleado().getPersona().getApellido()
-                : "—";
-
-        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
-               "<title>Factura " + f.getNumeroFactura() + "</title>" +
-               "<style>body{font-family:Arial,sans-serif;margin:40px;color:#333}" +
-               "h1{color:#1c3766;font-size:22px;border-bottom:2px solid #1c3766;padding-bottom:8px}" +
-               "table{width:100%;border-collapse:collapse;margin-top:16px}" +
-               "th{background:#1c3766;color:white;padding:10px;text-align:left;font-size:12px}" +
-               "td{padding:8px 10px;border-bottom:1px solid #eee;font-size:13px}" +
-               ".total{font-size:20px;font-weight:bold;text-align:right;margin-top:20px;color:#1c3766}" +
-               ".footer{margin-top:60px;font-size:10px;color:#999;text-align:center;border-top:1px solid #eee;padding-top:12px}" +
-               "</style></head><body>" +
-               "<h1>FACTURA DE SERVICIO</h1>" +
-               "<table>" +
-               "<tr><th>N° Factura</th><td>" + f.getNumeroFactura() + "</td>" +
-               "<th>Fecha Emisión</th><td>" + (f.getFechaEmision() != null ? f.getFechaEmision().substring(0, 10) : "—") + "</td></tr>" +
-               "<tr><th>Paciente</th><td>" + pacienteNombre + "</td><th>CI</th><td>" + pacienteCi + "</td></tr>" +
-               "<tr><th>Concepto</th><td colspan='3'>" + (f.getConcepto() != null ? f.getConcepto() : "—") + "</td></tr>" +
-               "<tr><th>Método de Pago</th><td>" + (f.getMetodoPago() != null ? f.getMetodoPago() : "—") + "</td>" +
-               "<th>Estado</th><td>" + (f.getEstado() != null ? f.getEstado().toUpperCase() : "—") + "</td></tr>" +
-               "<tr><th>Registrado por</th><td colspan='3'>" + empleadoNombre + "</td></tr>" +
-               "</table>" +
-               "<div class='total'>TOTAL: Bs " + f.getMontoTotal() + "</div>" +
-               (f.getHashBlockchain() != null
-                       ? "<p style='margin-top:16px;font-size:10px;color:#666;word-break:break-all'>Hash Blockchain: " + f.getHashBlockchain() + "</p>"
-                       : "") +
-               "<div class='footer'>Centro de Fisioterapia — " + LocalDateTime.now().toLocalDate() + "</div>" +
-               "</body></html>";
+    /**
+     * Genera el PDF de la factura con OpenPDF, lo sube a S3 y retorna la URL pública.
+     * Llamado automáticamente desde MensualidadesService al registrar un pago.
+     *
+     * @param factura         Entidad Facturas recién creada (tiene el numeroFactura).
+     * @param facturaEnriquecida DTO con datos del paciente y empleado.
+     * @return URL pública del PDF en S3 (https://bucket.s3.region.amazonaws.com/facturas/...).
+     */
+    public String generarYSubirPdfFactura(Facturas factura, FacturaEnriquecida facturaEnriquecida) {
+        byte[] pdfBytes = generarPdfBytes(facturaEnriquecida);
+        String key = "facturas/" + factura.getNumeroFactura() + ".pdf";
+        return s3Service.subirArchivo(key, pdfBytes, "application/pdf");
     }
 
     /**
-     * Construye un PDF mínimo válido. En producción reemplazar con iText7 o Flying Saucer.
-     * Por ahora el frontend recibirá el HTML como base64 de un HTML-file para imprimir.
+     * Genera los bytes PDF de una factura usando OpenPDF.
+     * Diseño profesional con colores institucionales del centro de fisioterapia.
      */
-    private byte[] buildPdfSimple(FacturaEnriquecida f) {
-        // Retornamos el HTML codificado como "application/pdf" temporal
-        // El frontend detecta que es HTML y lo abre en una nueva pestaña para imprimir
-        return buildFacturaHtml(f).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    public byte[] generarPdfBytes(FacturaEnriquecida f) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Document doc = new Document(PageSize.A4, 50f, 50f, 60f, 60f);
+
+        try {
+            PdfWriter.getInstance(doc, baos);
+            doc.open();
+
+            Font fTitulo = new Font(Font.HELVETICA, 20, Font.BOLD, AZUL_PRIMARIO);
+            Font fSubtitulo = new Font(Font.HELVETICA, 10, Font.NORMAL, Color.GRAY);
+            Font fEncabezado = new Font(Font.HELVETICA, 9, Font.BOLD, Color.WHITE);
+            Font fValor = new Font(Font.HELVETICA, 10);
+            Font fTotal = new Font(Font.HELVETICA, 16, Font.BOLD, AZUL_PRIMARIO);
+            Font fFooter = new Font(Font.HELVETICA, 8, Font.NORMAL, Color.LIGHT_GRAY);
+            Font fHash = new Font(Font.HELVETICA, 7, Font.NORMAL, Color.GRAY);
+
+            // --- Encabezado ---
+            Paragraph titulo = new Paragraph("FACTURA DE SERVICIO", fTitulo);
+            titulo.setAlignment(Element.ALIGN_CENTER);
+            titulo.setSpacingAfter(4f);
+            doc.add(titulo);
+
+            Paragraph subtitulo = new Paragraph("Centro de Rehabilitación y Fisioterapia", fSubtitulo);
+            subtitulo.setAlignment(Element.ALIGN_CENTER);
+            subtitulo.setSpacingAfter(24f);
+            doc.add(subtitulo);
+
+            // --- Tabla de datos ---
+            PdfPTable tabla = new PdfPTable(new float[]{35f, 65f});
+            tabla.setWidthPercentage(100);
+            tabla.setSpacingBefore(4f);
+            tabla.setSpacingAfter(20f);
+
+            agregarFila(tabla, "Nº Factura", f.getNumeroFactura(), fEncabezado, fValor);
+
+            String fechaStr = f.getFechaEmision() != null && f.getFechaEmision().length() >= 10
+                    ? f.getFechaEmision().substring(0, 10) : "—";
+            agregarFila(tabla, "Fecha de Emisión", fechaStr, fEncabezado, fValor);
+
+            String paciente = f.getPaciente() != null
+                    ? f.getPaciente().getNombre() + " " + f.getPaciente().getApellido()
+                    : "Paciente ID: " + f.getPacienteId();
+            agregarFila(tabla, "Paciente", paciente, fEncabezado, fValor);
+
+            String ci = (f.getPaciente() != null && f.getPaciente().getCi() != null)
+                    ? f.getPaciente().getCi() : "—";
+            agregarFila(tabla, "CI / Documento", ci, fEncabezado, fValor);
+
+            String concepto = f.getConcepto() != null ? f.getConcepto() : "—";
+            agregarFila(tabla, "Concepto", concepto, fEncabezado, fValor);
+
+            String metodoPago = f.getMetodoPago() != null ? f.getMetodoPago().toUpperCase() : "—";
+            agregarFila(tabla, "Método de Pago", metodoPago, fEncabezado, fValor);
+
+            String estado = f.getEstado() != null ? f.getEstado().toUpperCase() : "—";
+            agregarFila(tabla, "Estado", estado, fEncabezado, fValor);
+
+            String empleado = "—";
+            if (f.getEmpleado() != null && f.getEmpleado().getPersona() != null) {
+                var p = f.getEmpleado().getPersona();
+                empleado = p.getNombre() + " " + p.getApellido() + " (" + f.getEmpleado().getCargo() + ")";
+            }
+            agregarFila(tabla, "Registrado por", empleado, fEncabezado, fValor);
+
+            doc.add(tabla);
+
+            // --- Total ---
+            Paragraph total = new Paragraph("TOTAL:  Bs " + f.getMontoTotal(), fTotal);
+            total.setAlignment(Element.ALIGN_RIGHT);
+            total.setSpacingAfter(20f);
+            doc.add(total);
+
+            // --- Hash blockchain (si disponible) ---
+            if (f.getHashBlockchain() != null) {
+                Paragraph hashP = new Paragraph("Verificación Blockchain (SHA-256): " + f.getHashBlockchain(), fHash);
+                hashP.setSpacingBefore(8f);
+                hashP.setSpacingAfter(4f);
+                doc.add(hashP);
+                if (f.getTxBlockchain() != null) {
+                    Paragraph txP = new Paragraph("Tx Sepolia: " + f.getTxBlockchain(), fHash);
+                    doc.add(txP);
+                }
+            }
+
+            // --- Pie de página ---
+            Paragraph footer = new Paragraph("Documento emitido el " + LocalDate.now() +
+                    " — Centro de Fisioterapia", fFooter);
+            footer.setAlignment(Element.ALIGN_CENTER);
+            footer.setSpacingBefore(30f);
+            doc.add(footer);
+
+        } catch (DocumentException e) {
+            throw new RuntimeException("Error generando PDF de factura: " + e.getMessage(), e);
+        } finally {
+            if (doc.isOpen()) doc.close();
+        }
+
+        return baos.toByteArray();
+    }
+
+    private void agregarFila(PdfPTable tabla, String etiqueta, String valor,
+                              Font fEncabezado, Font fValor) {
+        PdfPCell celda = new PdfPCell(new Phrase(etiqueta, fEncabezado));
+        celda.setBackgroundColor(AZUL_PRIMARIO);
+        celda.setPadding(8f);
+        celda.setBorderColor(Color.LIGHT_GRAY);
+        tabla.addCell(celda);
+
+        PdfPCell valor2 = new PdfPCell(new Phrase(valor != null ? valor : "—", fValor));
+        valor2.setPadding(8f);
+        valor2.setBorderColor(Color.LIGHT_GRAY);
+        tabla.addCell(valor2);
     }
 
     private Pageable toPageable(PaginaInput p, Sort sort) {
